@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+.env.*
+
+# Cached data (never commit raw data artifacts)
+data/*.parquet
+data/*.db
+data/*.csv
+data/*.json
+data/*.pkl
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb~
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# Ruff / Black caches
+.ruff_cache/
+.black_cache/
+
+# mypy
+.mypy_cache/
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Distribution
+*.tar.gz
+*.whl
