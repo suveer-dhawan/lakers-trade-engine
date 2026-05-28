@@ -14,6 +14,17 @@ This isn't a prediction engine ("will the Celtics accept this trade?"). It's a d
  
 ---
  
+## Design Principles
+
+These methodological commitments hold across all phases:
+
+- **Generalize first, apply the Lakers/Luka lens second.** Build a player valuation model that works for any team, then layer in the specific star-complement context. Avoids overfitting to one roster.
+- **Empirically derived archetypes.** Cluster on all features; don't pre-select which dimensions define a "complementary" player. Let the data surface the structure.
+- **Acknowledge the system-effects limitation explicitly.** On/off metrics conflate player quality with lineup construction and coaching. We note this caveat rather than paper over it.
+- **Document methodology as you code, not after.** Decisions made during exploration belong in the notebook cells where they happen — not retrofitted into a write-up later.
+
+---
+
 ## Project Status
  
 > 🚧 **Active development** — this README evolves with the project.
@@ -115,6 +126,7 @@ Quantified role-fit metric rather than subjective "3&D" labels. Candidate inputs
 - Low usage rate (doesn't need the ball)
 - Off-ball movement / gravity metrics
 - Switchability on defense
+- **Roll Gravity Score** — lob threat / rim finishing gravity; captures the vertical spacing and interior finishing that complements perimeter shooting and defensive metrics
 *The specific formula will be shaped by what the clustering reveals — let the data define archetypes rather than hand-coding them.*
  
 ### Trade Evaluator
@@ -132,6 +144,7 @@ Quantified role-fit metric rather than subjective "3&D" labels. Candidate inputs
 | Clustering (k-means or similar) | Player archetype identification | Core |
 | Monte Carlo simulation | Draft pick value under protections | Core |
 | Contract prediction model | Predict market value, find overpays/underpays | Stretch |
+| On/off differential analysis | Define complementary players empirically via historical pairing data with ball-dominant guards | Core |
 | Similarity scoring | "Players like PJ Washington pre-trade" | Stretch |
  
 What we're **not** doing: deep learning (dataset too small), LLM chatbot wrappers (adds flash, not substance), real-time prediction systems.

@@ -3,7 +3,7 @@ NBA-specific constants for the Lakers Trade Engine.
 
 Covers team identifiers, 2025-26 CBA financial thresholds, and position
 mappings. CBA dollar figures are encoded here because they are rules, not
-data — they don't come from an API, they come from the collective bargaining
+data - they don't come from an API, they come from the collective bargaining
 agreement documentation and must be manually updated each season.
 
 Sources:
@@ -39,10 +39,21 @@ LUXURY_TAX_LINE = 187_900_000     # First-dollar luxury tax threshold
 FIRST_APRON = 194_900_000         # First apron (restricts certain moves)
 SECOND_APRON = 207_900_000        # Second apron (hard cap, additional restrictions)
 
+# ---------------------------------------------------------------------------
+# 2026-27 Projected CBA Thresholds (USD)
+# Projected ~2% growth from 2025-26 actuals. Update once NBA announces
+# official cap figures (typically released in early July prior to the season).
+# ---------------------------------------------------------------------------
+
+SALARY_CAP_2026_27 = 157_000_000          # Projected soft cap (~$157M)
+LUXURY_TAX_LINE_2026_27 = 191_000_000     # Projected tax line
+FIRST_APRON_2026_27 = 198_600_000         # Projected first apron
+SECOND_APRON_2026_27 = 211_900_000        # Projected second apron
+
 # Minimum salary (veteran minimum, 1 year of service, 2025-26)
 VETERAN_MINIMUM_SALARY = 1_164_164
 
-# Mid-level exception amounts (approximate — varies by tax status)
+# Mid-level exception amounts (approximate - varies by tax status)
 NON_TAX_MLE = 13_700_000
 TAX_MLE = 5_200_000
 ROOM_MLE = 5_200_000
@@ -71,3 +82,36 @@ POSITION_GROUPS: dict[str, list[str]] = {
 
 # Canonical 5-position scheme used across feature engineering
 POSITIONS = ["PG", "SG", "SF", "PF", "C"]
+
+# ---------------------------------------------------------------------------
+# Player option overrides for 2026-27 offseason analysis
+# Players here have their forward salary nullified so they appear as free agents.
+# ---------------------------------------------------------------------------
+
+PLAYER_OPTION_OVERRIDES: dict[str, tuple] = {
+    # player_name: (season, action, notes)
+    "Austin Reaves": (
+        "2026-27",
+        "decline",
+        "Will decline $14.9M PO to sign max extension",
+    ),
+}
+
+# All known option years for 2026-27. Used to add HAS_OPTION / OPTION_TYPE columns.
+KNOWN_OPTIONS_2026_27: dict[str, dict] = {
+    "Austin Reaves": {
+        "type": "player",
+        "salary": 14_900_000,
+        "likely_action": "decline",
+    },
+    "Marcus Smart": {
+        "type": "player",
+        "salary": 5_390_000,
+        "likely_action": "exercise",
+    },
+    "Deandre Ayton": {
+        "type": "player",
+        "salary": 8_100_000,
+        "likely_action": "uncertain",
+    },
+}
