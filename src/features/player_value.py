@@ -1,10 +1,10 @@
 """
 Composite player valuation model.
 
-Phase 1.5 -- Player Valuation (revised).
+Phase 1.5b -- Player Valuation (percentile-rank surplus).
 
 Builds ON_COURT_VALUE as a weighted blend of z-scored advanced metrics,
-then computes contract-relative SURPLUS_VALUE via a regression-based approach.
+then computes contract-relative SURPLUS_VALUE via percentile-rank comparison.
 Integrates durability discounting and an age-curve multiplier.
 
 Output columns added to the input DataFrame:
@@ -17,12 +17,11 @@ Output columns added to the input DataFrame:
     IS_FREE_AGENT          -- True if no 2026-27 salary on record
     CONTRACT_VALUE         -- SALARY_FORWARD / SALARY_CAP_2026_27 (kept for display)
     CONTRACT_VALUE_Z       -- z-score of CONTRACT_VALUE among non-FAs
-    EXPECTED_SALARY        -- market-rate salary predicted from ON_COURT_VALUE regression
-    SURPLUS_VALUE_DOLLARS  -- EXPECTED_SALARY - SALARY_FORWARD (positive = underpaid)
-    SURPLUS_VALUE          -- z-score of SURPLUS_VALUE_DOLLARS (for ranking)
-    SURPLUS_RANK           -- rank among non-FAs (1 = most undervalued)
-    FA_VALUE               -- ON_COURT_VALUE for free agents
-    FA_VALUE_RANK          -- rank among FAs
+    VALUE_PERCENTILE       -- production rank within population [0, 1]
+    SALARY_PERCENTILE      -- salary rank within non-FA population [0, 1] (non-FAs only)
+    SURPLUS_VALUE          -- VALUE_PERCENTILE - SALARY_PERCENTILE (positive = underpaid)
+                             For free agents: = VALUE_PERCENTILE (zero assumed cost)
+    SURPLUS_RANK           -- rank by SURPLUS_VALUE (1 = most undervalued)
     SALARY_RANK_PCT        -- salary percentile among players with 26-27 salary
   Age-adjusted:
     AGE_FACTOR             -- step-function multiplier based on age curve
@@ -47,8 +46,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-from scipy.stats import zscore as scipy_zscore
-from sklearn.linear_model import LinearRegression
 
 from src.features.durability import add_durability_to_dataset
 from src.utils.constants import SALARY_CAP_2026_27
@@ -246,45 +243,54 @@ def compute_player_value(
         )
 
     # ------------------------------------------------------------------
-    # Step 4: Surplus value (regression-based)
+    # Step 4: Surplus value (percentile-rank method)
+    #
+    # Surplus = VALUE_PERCENTILE - SALARY_PERCENTILE.
+    # Comparing ranks rather than raw values handles the skewed salary
+    # distribution cleanly: a star in the 90th percentile of production
+    # but only the 90th percentile of salary has surplus ~= 0 (fairly paid).
+    # OLS can't do this because salary is right-skewed while production is normal.
     # ------------------------------------------------------------------
     cv_z = _zscore_within_qualifying(df["CONTRACT_VALUE"], has_fwd)
     df["CONTRACT_VALUE_Z"] = cv_z
 
-    # Fit a linear regression: SALARY_FORWARD ~ ON_COURT_VALUE on non-FA qualifiers.
-    # EXPECTED_SALARY = market rate for this level of production.
-    # SURPLUS_VALUE_DOLLARS = EXPECTED_SALARY - SALARY_FORWARD (positive = underpaid).
-    reg_mask = (
+    non_fa_mask = (
         has_fwd
         & df["ON_COURT_VALUE"].notna()
         & df["SALARY_FORWARD"].notna()
     )
-    df["EXPECTED_SALARY"] = np.nan
-    df["SURPLUS_VALUE_DOLLARS"] = np.nan
 
-    if reg_mask.sum() >= 10:
-        X = df.loc[reg_mask, "ON_COURT_VALUE"].values.reshape(-1, 1)
-        y = df.loc[reg_mask, "SALARY_FORWARD"].values
-        reg = LinearRegression().fit(X, y)
-        df.loc[reg_mask, "EXPECTED_SALARY"] = reg.predict(X)
-        df.loc[reg_mask, "SURPLUS_VALUE_DOLLARS"] = (
-            df.loc[reg_mask, "EXPECTED_SALARY"] - df.loc[reg_mask, "SALARY_FORWARD"]
-        )
+    df["VALUE_PERCENTILE"] = np.nan
+    df["SALARY_PERCENTILE"] = np.nan
+    df["SURPLUS_VALUE"] = np.nan
+
+    if non_fa_mask.sum() >= 10:
+        subset = df.loc[non_fa_mask].copy()
+        subset["VALUE_PERCENTILE"] = subset["ON_COURT_VALUE"].rank(pct=True)
+        subset["SALARY_PERCENTILE"] = subset["SALARY_FORWARD"].rank(pct=True)
+        subset["SURPLUS_VALUE"] = subset["VALUE_PERCENTILE"] - subset["SALARY_PERCENTILE"]
+        df.loc[non_fa_mask, "VALUE_PERCENTILE"] = subset["VALUE_PERCENTILE"]
+        df.loc[non_fa_mask, "SALARY_PERCENTILE"] = subset["SALARY_PERCENTILE"]
+        df.loc[non_fa_mask, "SURPLUS_VALUE"] = subset["SURPLUS_VALUE"]
         logger.info(
-            "Surplus regression: R^2=%.3f, slope=$%.0f per unit ON_COURT_VALUE",
-            reg.score(X, y), reg.coef_[0],
+            "Percentile-rank surplus computed for %d non-FA players", non_fa_mask.sum()
         )
     else:
-        logger.warning("Too few qualifying non-FAs (%d) for surplus regression", reg_mask.sum())
+        logger.warning(
+            "Too few qualifying non-FAs (%d) for surplus computation", non_fa_mask.sum()
+        )
 
-    # Normalize to z-score for ranking across players
-    has_sv = df["SURPLUS_VALUE_DOLLARS"].notna()
-    df["SURPLUS_VALUE"] = np.nan
-    if has_sv.any():
-        sv_z = scipy_zscore(df.loc[has_sv, "SURPLUS_VALUE_DOLLARS"], ddof=1)
-        df.loc[has_sv, "SURPLUS_VALUE"] = sv_z
+    # Free agents: surplus = VALUE_PERCENTILE (full production value, zero assumed cost).
+    # Ranked within the full qualified population so FAs and non-FAs are comparable.
+    all_qual_mask = df["ON_COURT_VALUE"].notna()
+    if all_qual_mask.any():
+        all_val_pctile = df.loc[all_qual_mask, "ON_COURT_VALUE"].rank(pct=True)
+        fa_mask = df["IS_FREE_AGENT"] & all_qual_mask
+        df.loc[fa_mask, "VALUE_PERCENTILE"] = all_val_pctile.loc[fa_mask]
+        df.loc[fa_mask, "SURPLUS_VALUE"] = df.loc[fa_mask, "VALUE_PERCENTILE"]
+        logger.info("FA surplus (VALUE_PERCENTILE) set for %d free agents", fa_mask.sum())
 
-    # Surplus rank: among non-FAs with a valid surplus value
+    # Surplus rank: 1 = most undervalued
     has_surplus = df["SURPLUS_VALUE"].notna()
     df["SURPLUS_RANK"] = np.nan
     if has_surplus.any():
@@ -308,15 +314,6 @@ def compute_player_value(
         logger.warning("AGE column not found; AGE_ADJUSTED_SURPLUS skipped")
         df["AGE_FACTOR"] = np.nan
         df["AGE_ADJUSTED_SURPLUS"] = np.nan
-
-    # Free agents: value is raw on-court value, unconstrained by contract
-    df["FA_VALUE"] = np.where(df["IS_FREE_AGENT"], df["ON_COURT_VALUE"], np.nan)
-    has_fa_value = df["FA_VALUE"].notna()
-    df["FA_VALUE_RANK"] = np.nan
-    if has_fa_value.any():
-        df.loc[has_fa_value, "FA_VALUE_RANK"] = df.loc[has_fa_value, "FA_VALUE"].rank(
-            ascending=False, method="min"
-        )
 
     # ------------------------------------------------------------------
     # Step 5: Durability adjustment
@@ -354,7 +351,8 @@ def surplus_leaderboard(
     """
     cols = [
         "PLAYER_NAME", "TEAM_ABBREVIATION", "AGE", "ON_COURT_VALUE",
-        "SALARY_FORWARD", "CONTRACT_VALUE", "SURPLUS_VALUE", "SURPLUS_RANK",
+        "VALUE_PERCENTILE", "SALARY_PERCENTILE", "SALARY_FORWARD",
+        "CONTRACT_VALUE", "SURPLUS_VALUE", "SURPLUS_RANK",
         "DURABILITY_SCORE", "ADJUSTED_VALUE",
     ]
     available = [c for c in cols if c in df.columns]
@@ -373,7 +371,8 @@ def overpaid_leaderboard(df: pd.DataFrame, n: int = 30) -> pd.DataFrame:
     """Return top-n overpaid players sorted by SURPLUS_VALUE ascending."""
     cols = [
         "PLAYER_NAME", "TEAM_ABBREVIATION", "AGE", "ON_COURT_VALUE",
-        "SALARY_FORWARD", "CONTRACT_VALUE", "SURPLUS_VALUE",
+        "VALUE_PERCENTILE", "SALARY_PERCENTILE", "SALARY_FORWARD",
+        "CONTRACT_VALUE", "SURPLUS_VALUE",
     ]
     available = [c for c in cols if c in df.columns]
     mask = df["SURPLUS_VALUE"].notna()
@@ -388,24 +387,24 @@ def overpaid_leaderboard(df: pd.DataFrame, n: int = 30) -> pd.DataFrame:
 def fa_leaderboard(
     df: pd.DataFrame,
     n: int = 30,
-    complement_col: str | None = "COMPLEMENT_FIT_RANK",
+    complement_col: str | None = "ARCHETYPE_DISTANCE",
 ) -> pd.DataFrame:
     """
-    Return top-n free agents by ON_COURT_VALUE (or combined with complement fit).
+    Return top-n free agents ranked by ON_COURT_VALUE (production, unconstrained by cost).
 
-    If complement_col exists in df, include it in output for joint ranking.
+    If complement_col exists in df, include it in output for context.
     """
     cols = [
-        "PLAYER_NAME", "TEAM_ABBREVIATION", "AGE", "FA_VALUE", "FA_VALUE_RANK",
-        "DURABILITY_SCORE", "ADJUSTED_VALUE",
+        "PLAYER_NAME", "TEAM_ABBREVIATION", "AGE", "ON_COURT_VALUE",
+        "VALUE_PERCENTILE", "AGE_FACTOR", "DURABILITY_SCORE", "ADJUSTED_VALUE",
     ]
     if complement_col and complement_col in df.columns:
         cols.append(complement_col)
     available = [c for c in cols if c in df.columns]
-    mask = df["IS_FREE_AGENT"] & df["FA_VALUE"].notna()
+    mask = df["IS_FREE_AGENT"] & df["ON_COURT_VALUE"].notna()
     return (
         df[mask][available]
-        .sort_values("FA_VALUE", ascending=False)
+        .sort_values("ON_COURT_VALUE", ascending=False)
         .head(n)
         .reset_index(drop=True)
     )

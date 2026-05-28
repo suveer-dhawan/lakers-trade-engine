@@ -85,11 +85,38 @@ underlying model is league-wide and team-agnostic by design.
     versions kept as commented fallback. Limitations section updated (RAPTOR removed, EPM/LEBRON
     clarified as aspirational, age curve and historical validation limitations documented).
   - Plotly already in pyproject.toml (no new dependency needed).
+- Phase 1.5b complete: Three methodological fixes.
+  Key changes (all in src/):
+  - Surplus value: OLS regression replaced with percentile-rank method.
+    SURPLUS_VALUE = VALUE_PERCENTILE - SALARY_PERCENTILE (non-FAs).
+    For FAs: SURPLUS_VALUE = VALUE_PERCENTILE (full production rank, zero assumed cost).
+    Removed columns: EXPECTED_SALARY, SURPLUS_VALUE_DOLLARS, FA_VALUE, FA_VALUE_RANK.
+    New columns: VALUE_PERCENTILE, SALARY_PERCENTILE.
+    Result: Stars paid like stars (Mitchell, Jokic) show surplus ~0. Jordan Poole/Patrick
+    Williams correctly appear as the most overpaid players.
+  - K-means clustering replaced with historical archetype profiling (luka_complement.py rewrite).
+    DALLAS_ARCHETYPE_MAP: 12 historical Dallas teammates across 3 seasons (2021-22, 2022-23, 2023-24).
+    Archetypes: rim_runner, three_and_d, secondary_creator, shooter.
+    Kyrie excluded from secondary_creator (his 2023-24 USG ~32% would contaminate the centroid).
+    Features: 8 nba_api features available for all seasons (USG_PCT, AST_PCT, OREB_PCT, DREB_PCT,
+    TS_PCT, NET_RATING, FG3_PCT, FG_PCT). All 12 validation players found with complete data.
+    Secondary creator USG gate: USG_PCT > 0.26 excluded from secondary_creator archetype.
+    Filter threshold: ARCHETYPE_DISTANCE < 2.5 (up from 2.0 to capture rim runners ~2.14).
+    New columns: BEST_ARCHETYPE, ARCHETYPE_DISTANCE, DIST_RIM_RUNNER, DIST_THREE_AND_D,
+    DIST_SECONDARY_CREATOR, DIST_SHOOTER.
+    Removed columns: COMPLEMENT_CLUSTER, IS_LUKA_COMPLEMENT_CLUSTER, COMPLEMENT_DISTANCE,
+    COMPLEMENT_FIT_RANK.
+    Stored in df.attrs: archetype_validation_rows (list), archetype_centroid_names, archetype_features.
+  - Notebook 04 updated: Section C (percentile-rank scatter), Section E (archetype methodology,
+    validation table, per-archetype targets), Section G (combined targets with BEST_ARCHETYPE),
+    Section H (updated methodology table and limitations).
 - Known gaps: Defensive data is thin (only close-defense FG% diff from nba_api).
   Play-type data (roll man stats, transition, etc.) not yet ingested.
   Salary data is 2025-26 only; prior seasons will need CSV download if needed.
-  Historical validation players missing catch-and-shoot and matchup features (only 2024-26
-  cached); imputed at population mean for cluster prediction.
+  Secondary creator archetype overlaps with ball-dominant guards (8 generic features cannot
+  fully separate "secondary creator in Luka's system" from "primary creator elsewhere").
+  De'Aaron Fox (USG=24% on SA next to Wemby in 2025-26) correctly appears as secondary_creator
+  by the model based on his actual 2025-26 role data.
 
 ## What NOT To Do
 - Don't build UI or dashboard components until Phase 5. Focus is analysis.
